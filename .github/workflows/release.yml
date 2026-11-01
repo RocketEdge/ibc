@@ -1,0 +1,58 @@
+# Publishes a RocketEdge release of IBC from a tag of the form <upstream>-rocketedge.N:
+# builds from source, computes SHA-256 checksums, signs each artefact with Sigstore cosign
+# (keyless, this workflow's identity) and attaches everything to the GitHub release.
+# The first release (3.24.2-rocketedge.1) was created by hand as a byte-identical re-upload of
+# upstream's artefacts; this workflow applies from the first patched release onwards.
+name: Release
+
+on:
+  push:
+    tags: ["*-rocketedge.*"]
+
+permissions:
+  contents: read
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/setup-java@v6.1.0
+        with:
+          distribution: temurin
+          java-version: "25"
+      - run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ant
+      - name: Fetch the stable IB Gateway installer (classpath jars only)
+        run: |
+          set -euo pipefail
+          curl -sSfL https://download2.interactivebrokers.com/installers/ibgateway/stable-standalone/ibgateway-stable-standalone-linux-x64.sh -o "$RUNNER_TEMP/ibgateway.sh"
+          chmod +x "$RUNNER_TEMP/ibgateway.sh"
+          "$RUNNER_TEMP/ibgateway.sh" -q -dir "$RUNNER_TEMP/ibgw"
+          echo "IBC_BIN=$RUNNER_TEMP/ibgw/jars" >> "$GITHUB_ENV"
+      - name: Build with the release version baked into IbcVersionInfo
+        run: ant -noinput -buildfile build.xml -Dver="$GITHUB_REF_NAME" clean dist
+      - name: Checksums
+        run: |
+          cd dist
+          sha256sum IBC*.zip > SHA256SUMS.txt
+          for z in IBC*.zip; do sha256sum "$z" > "$z.sha256"; done
+          cat SHA256SUMS.txt
+      - uses: sigstore/cosign-installer@v4.1.2
+      - name: Sign (keyless)
+        run: |
+          cd dist
+          for z in IBC*.zip; do cosign sign-blob --yes --bundle "$z.sigstore.json" "$z"; done
+      - uses: actions/attest-build-provenance@v4.2.2
+        with:
+          subject-path: dist/IBC*.zip
+      - name: Create the GitHub release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" dist/IBC*.zip dist/*.sha256 dist/SHA256SUMS.txt dist/*.sigstore.json \
+            --title "IBC $GITHUB_REF_NAME" \
+            --notes "RocketEdge release of IBC built from tag $GITHUB_REF_NAME (GPL-3.0; complete corresponding source = this tag). Verify: cosign verify-blob --bundle <zip>.sigstore.json --certificate-identity-regexp 'https://github.com/RocketEdge/ibc/' --certificate-oidc-issuer https://token.actions.githubusercontent.com <zip>"

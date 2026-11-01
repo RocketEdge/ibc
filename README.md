@@ -1,3 +1,13 @@
+## RocketEdge maintenance fork
+
+> This is **RocketEdge's maintenance fork** of IBC, kept because upstream was retired and
+> archived on 2026-09-01. Branch `master` is upstream verbatim; branch `brokersre` (default)
+> adds documentation, CI and, only when a Gateway change breaks login, patches. Releases are
+> named `<upstream>-rocketedge.N`; `3.24.2-rocketedge.1` is upstream's 3.24.2 byte for byte.
+> See [FORK.md](FORK.md) for the patch policy and licence notes. The original README follows.
+
+<br>
+
 ## PROJECT RETIREMENT
 
 >**This project has been retired, as of 1 September 2026. By 'retired', I mean that

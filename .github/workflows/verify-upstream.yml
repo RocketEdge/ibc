@@ -1,0 +1,46 @@
+# Reproducibility evidence: rebuild IBC from this branch and compare the class list of the
+# produced IBC.jar with the jar inside the upstream 3.24.2 release zip. Byte identity is not
+# expected (jar timestamps differ); the class list and sizes must match. Runs weekly and on
+# demand so a silent toolchain drift is noticed before a patch is ever needed.
+name: Verify against upstream 3.24.2
+
+on:
+  schedule:
+    - cron: "0 7 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  compare:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/setup-java@v6.1.0
+        with:
+          distribution: temurin
+          java-version: "25"
+      - run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ant
+      - name: Fetch the stable IB Gateway installer (classpath jars only)
+        run: |
+          set -euo pipefail
+          curl -sSfL https://download2.interactivebrokers.com/installers/ibgateway/stable-standalone/ibgateway-stable-standalone-linux-x64.sh -o "$RUNNER_TEMP/ibgateway.sh"
+          chmod +x "$RUNNER_TEMP/ibgateway.sh"
+          "$RUNNER_TEMP/ibgateway.sh" -q -dir "$RUNNER_TEMP/ibgw"
+          echo "IBC_BIN=$RUNNER_TEMP/ibgw/jars" >> "$GITHUB_ENV"
+      - name: Build
+        run: ant -noinput -buildfile build.xml -Dver=3.24.2 clean dist
+      - name: Download the upstream re-release and compare class lists
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          gh release download 3.24.2-rocketedge.1 --pattern 'IBCLinux-3.24.2.zip' --dir upstream
+          sha256sum -c <(echo "cc097ca1dfa75413a5fbe02e4743050af15f3308eb6a97c769b3cff9850c80c5  upstream/IBCLinux-3.24.2.zip")
+          unzip -o -q upstream/IBCLinux-3.24.2.zip IBC.jar -d upstream
+          unzip -o -q dist/IBCLinux-3.24.2.zip IBC.jar -d ours
+          unzip -Z1 upstream/IBC.jar | sort > upstream.txt
+          unzip -Z1 ours/IBC.jar | sort > ours.txt
+          diff upstream.txt ours.txt && echo "class lists match"
+          unzip -p dist/IBCLinux-3.24.2.zip version

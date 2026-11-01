@@ -1,0 +1,59 @@
+# Builds IBC from source the way upstream did (Ant, javac --release 17) and proves the result
+# is a sane distribution. IBC compiles against the IB Gateway jars, so the current stable
+# Gateway installer is fetched from IBKR and unpacked into IBC_BIN for the classpath only.
+name: Build
+
+on:
+  push:
+    branches: [brokersre]
+  pull_request:
+    branches: [brokersre]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  ant:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/setup-java@v6.1.0
+        with:
+          distribution: temurin
+          java-version: "25"
+      - name: Install Ant
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ant
+      - name: Fetch the stable IB Gateway installer (classpath jars only)
+        run: |
+          set -euo pipefail
+          url=https://download2.interactivebrokers.com/installers/ibgateway/stable-standalone/ibgateway-stable-standalone-linux-x64.sh
+          curl -sSfL "$url" -o "$RUNNER_TEMP/ibgateway.sh"
+          echo "installer sha256: $(sha256sum "$RUNNER_TEMP/ibgateway.sh" | cut -d' ' -f1)"
+          chmod +x "$RUNNER_TEMP/ibgateway.sh"
+          "$RUNNER_TEMP/ibgateway.sh" -q -dir "$RUNNER_TEMP/ibgw"
+          echo "IBC_BIN=$RUNNER_TEMP/ibgw/jars" >> "$GITHUB_ENV"
+          ls "$RUNNER_TEMP/ibgw/jars" | head
+      - name: Build distribution zips
+        run: |
+          set -euo pipefail
+          ver=$(grep -oP 'name="ver" value="\K[^"]+' build.xml)
+          ant -noinput -buildfile build.xml -Dver="$ver" clean dist
+          ls -la dist
+          for z in dist/*.zip; do unzip -l "$z" | tail -1; done
+      - name: Distribution sanity checks
+        run: |
+          set -euo pipefail
+          unzip -l dist/IBCLinux-*.zip | grep -q 'IBC.jar'
+          unzip -l dist/IBCLinux-*.zip | grep -q 'gatewaystart.sh'
+          unzip -l dist/IBCLinux-*.zip | grep -q 'LICENSE.txt'
+          unzip -p dist/IBCLinux-*.zip version
+      - uses: actions/upload-artifact@v7.0.2
+        with:
+          name: ibc-dist
+          path: dist/*.zip
+          retention-days: 14

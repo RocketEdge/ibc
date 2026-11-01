@@ -1,0 +1,12 @@
+# GitHub Actions only: IBC has no package manager dependencies (Ant + the JDK on the runner).
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    target-branch: brokersre
+    schedule:
+      interval: weekly
+      day: monday
+    commit-message:
+      prefix: ci
+    labels: [dependencies]

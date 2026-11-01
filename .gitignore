@@ -7,3 +7,6 @@ makedocs/*/*.aux
 makedocs/*/*.log
 makedocs/*/*.tex
 .*
+
+# RocketEdge fork: the upstream ".*" pattern above would hide the CI and ownership files.
+!.github/
